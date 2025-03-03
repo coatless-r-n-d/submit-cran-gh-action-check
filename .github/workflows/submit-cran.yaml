@@ -55,13 +55,20 @@ jobs:
         id: check
         with:
           upload-snapshots: true
-          error-on: warning
+          error-on: "warning"
 
       - name: Show R CMD check output
         if: always()
         shell: bash
         run: |
           cat ${{ steps.check.outputs.check_dir }}/00check.log
+
+      - name: Debug - List files after build
+        shell: bash
+        run: |
+          echo "Check directory: ${{ steps.check.outputs.check_dir }}"
+          echo "Directory contents after build:"
+          ls -la ${{ steps.check.outputs.check_dir }}
 
       - name: Upload tarball as artifact
         uses: actions/upload-artifact@v4
