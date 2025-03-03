@@ -26,29 +26,13 @@ jobs:
           extra-packages: any::rcmdcheck, any::devtools
           needs: check
 
-      - name: Debug - List files before build
+
+      - name: Debug - List files before check
         shell: bash
         run: |
-          echo "Current directory: $(pwd)"
-          echo "Directory contents:"
-          ls -la
-          echo "DESCRIPTION file contents:"
-          cat DESCRIPTION
-
-      - name: Build source package
-        shell: Rscript {0}
-        run: |
-          PKG_FILE <- devtools::build()
-          cat(paste0("PKG_FILE=", PKG_FILE), file = Sys.getenv("GITHUB_ENV"), append = TRUE)
-          cat("Package file:", PKG_FILE, "\n")
-
-      - name: Debug - List files after build
-        shell: bash
-        run: |
-          echo "Current directory: $(pwd)"
-          echo "Directory contents after build:"
-          ls -la
-          echo "Package file: $PKG_FILE"
+          echo "Check directory: ${PWD}"
+          echo "Directory contents before check:"
+          ls -laR
 
       - name: Check package
         uses: r-lib/actions/check-r-package@v2
@@ -57,18 +41,40 @@ jobs:
           upload-snapshots: true
           error-on: '"warning"'
 
-      - name: Show R CMD check output
-        if: always()
+      - name: Debug - List files check
         shell: bash
         run: |
-          cat ${{ steps.check.outputs.check_dir }}/00check.log
+          echo "Check directory: check"
+          echo "Directory contents after check:"
+          ls -la check
 
-      - name: Debug - List files after build
+      - name: Debug - View all check step data
         shell: bash
         run: |
-          echo "Check directory: ${{ steps.check.outputs.check_dir }}"
-          echo "Directory contents after build:"
+          echo "View job data"
+          echo ${{join(steps.run_tests.outputs.*, '\n')}}
+
+      - name: Debug - Access package tarball
+        shell: bash
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Directory contents:"
+          ls -la
+          echo "Check directory contents:"
           ls -la ${{ steps.check.outputs.check_dir }}
+          echo "Parent directory contents:"
+          ls -la ..
+
+          # Find the package tarball
+          PKG_TARBALL=$(find . -maxdepth 2 -name "*.tar.gz" | grep -v "check" | head -n 1)
+
+          if [ -z "$PKG_TARBALL" ]; then
+            echo "Could not find package tarball"
+            exit 1
+          fi
+
+          echo "Found package tarball: $PKG_TARBALL"
+          echo "PKG_TARBALL=$PKG_TARBALL" >> $GITHUB_ENV
 
       - name: Upload tarball as artifact
         uses: actions/upload-artifact@v4
