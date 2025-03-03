@@ -55,7 +55,7 @@ jobs:
         id: check
         with:
           upload-snapshots: true
-          error-on: "warning"
+          error-on: '"warning"'
 
       - name: Show R CMD check output
         if: always()
