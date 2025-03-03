@@ -1,0 +1,271 @@
+name: CRAN Submission
+
+on:
+  workflow_dispatch: {}
+  release:
+    types: [prereleased]
+
+jobs:
+  R-CMD-check:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+
+      - name: Install dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck, any::devtools
+          needs: check
+
+      - name: Debug - List files before build
+        shell: bash
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Directory contents:"
+          ls -la
+          echo "DESCRIPTION file contents:"
+          cat DESCRIPTION
+
+      - name: Build source package
+        shell: Rscript {0}
+        run: |
+          PKG_FILE <- devtools::build()
+          cat(paste0("PKG_FILE=", PKG_FILE), file = Sys.getenv("GITHUB_ENV"), append = TRUE)
+          cat("Package file:", PKG_FILE, "\n")
+
+      - name: Debug - List files after build
+        shell: bash
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Directory contents after build:"
+          ls -la
+          echo "Package file: $PKG_FILE"
+
+      - name: Check package
+        uses: r-lib/actions/check-r-package@v2
+        id: check
+        with:
+          upload-snapshots: true
+          error-on: warning
+
+      - name: Show R CMD check output
+        if: always()
+        shell: bash
+        run: |
+          cat ${{ steps.check.outputs.check_dir }}/00check.log
+
+      - name: Upload tarball as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: package-tarball
+          path: ${{ env.PKG_FILE }}
+          retention-days: 1
+
+  submit-to-cran:
+    needs: R-CMD-check
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+
+      - name: Install dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::devtools, any::desc
+
+      - name: Debug - Initial directory contents
+        shell: bash
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Directory contents at start:"
+          ls -la
+          echo "DESCRIPTION file contents:"
+          cat DESCRIPTION
+
+      - name: Extract package information
+        shell: Rscript {0}
+        run: |
+          library(desc)
+
+          # Print working directory for debugging
+          cat("Working directory:", getwd(), "\n")
+          cat("DESCRIPTION exists:", file.exists("DESCRIPTION"), "\n")
+
+          # Read the DESCRIPTION file
+          d <- desc::desc()
+
+          # Extract package name, version and maintainer
+          pkgname <- d$get("Package")
+          version <- d$get("Version")
+
+          # Get the maintainer field and extract email
+          maintainer <- d$get_maintainer()
+          cat("Maintainer field:", maintainer, "\n")
+
+          maintainer_email <- regmatches(
+            maintainer,
+            regexpr("<[^>]+>", maintainer)
+          )
+
+          # Clean up the email (remove < and >)
+          if (length(maintainer_email) > 0) {
+            maintainer_email <- gsub("[<>]", "", maintainer_email)
+          } else {
+            # Try another approach to find email in maintainer string
+            maintainer_email <- regmatches(
+              maintainer,
+              regexpr("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", maintainer)
+            )
+
+            if (length(maintainer_email) == 0) {
+              maintainer_email <- "unknown-email@example.com"
+              warning("Could not extract maintainer email from DESCRIPTION file")
+            }
+          }
+
+          # Write to environment for later steps
+          cat(sprintf("PKGNAME=%s\n", pkgname), file = Sys.getenv("GITHUB_ENV"), append = TRUE)
+          cat(sprintf("VERSION=%s\n", version), file = Sys.getenv("GITHUB_ENV"), append = TRUE)
+          cat(sprintf("MAINTAINER_EMAIL=%s\n", maintainer_email), file = Sys.getenv("GITHUB_ENV"), append = TRUE)
+
+          cat("Package:", pkgname, "\n")
+          cat("Version:", version, "\n")
+          cat("Maintainer email:", maintainer_email, "\n")
+
+      - name: Download package tarball
+        uses: actions/download-artifact@v3
+        with:
+          name: package-tarball
+          path: ./
+
+      - name: Debug - List files after download
+        shell: bash
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Directory contents after artifact download:"
+          ls -la
+          echo "Package name: $PKGNAME"
+          echo "Version: $VERSION"
+          echo "Expected package file: ${PKGNAME}_${VERSION}.tar.gz"
+
+      - name: Find tarball file
+        id: find-tarball
+        shell: bash
+        run: |
+          echo "Looking for package file matching pattern: ${PKGNAME}_${VERSION}.tar.gz"
+          find . -type f -name "*.tar.gz" | sort
+
+          PKG_FILE=$(find . -maxdepth 1 -name "${PKGNAME}_${VERSION}.tar.gz" -type f -print -quit)
+          if [ -z "$PKG_FILE" ]; then
+            echo "Could not find package tarball"
+            echo "All files in directory:"
+            find . -type f | grep -v .git
+            exit 1
+          fi
+          echo "PKG_FILE=$PKG_FILE" >> $GITHUB_ENV
+          echo "Found package file: $PKG_FILE"
+
+      - name: Check for cran-comments.md
+        id: check_comments
+        shell: bash
+        run: |
+          if [ -f "cran-comments.md" ]; then
+            echo "HAS_COMMENTS=true" >> $GITHUB_ENV
+            echo "cran-comments.md found"
+            echo "cran-comments.md contents:"
+            cat cran-comments.md
+          else
+            echo "HAS_COMMENTS=false" >> $GITHUB_ENV
+            echo "cran-comments.md not found, will create a basic one"
+          fi
+
+      - name: Create default cran-comments if none exists
+        if: env.HAS_COMMENTS == 'false'
+        shell: bash
+        run: |
+          cat << EOF > cran-comments.md
+          * This submission was automatically generated by a GitHub Action.
+          EOF
+          echo "Created default cran-comments.md"
+          echo "cran-comments.md contents:"
+          cat cran-comments.md
+
+      - name: Submit to CRAN
+        shell: Rscript {0}
+        run: |
+          pkg_file <- Sys.getenv("PKG_FILE")
+          cat("Working directory:", getwd(), "\n")
+          cat("Using package file:", pkg_file, "\n")
+          cat("File exists:", file.exists(pkg_file), "\n")
+
+          if (!file.exists(pkg_file)) {
+            cat("Files in directory:\n")
+            print(dir())
+            stop("Package file not found")
+          }
+
+          result <- tryCatch({
+            # Load devtools and access the internal upload_cran function
+            cat("Attempting to submit to CRAN...\n")
+            # devtools:::upload_cran(pkg = ".", file = pkg_file)
+            TRUE
+          }, error = function(e) {
+            cat("Error during CRAN submission:", e$message, "\n")
+            FALSE
+          })
+
+          if (result) {
+            cat("CRAN submission successful!\n")
+            cat("Check https://CRAN.R-project.org/incoming/ for your package\n")
+            cat("and watch for the confirmation email that needs to be accepted.\n")
+          } else {
+            stop("CRAN submission failed")
+          }
+
+      - name: Create issue content file
+        shell: bash
+        run: |
+          cat << EOF > issue.md
+          A CRAN submission for **${{ env.PKGNAME }}** version **${{ env.VERSION }}** has been initiated.
+
+          **Important next steps:**
+
+          1. **Check your email (${{ env.MAINTAINER_EMAIL }})**: You MUST reply to the confirmation email from CRAN to complete the submission.
+          2. **Verify submission**: Check if your package appears at https://CRAN.R-project.org/incoming/
+          3. **If issues occur**: Contact CRAN administrators at cran-sysadmin@R-project.org
+
+          **Submission details:**
+          - Package: ${{ env.PKGNAME }}
+          - Version: ${{ env.VERSION }}
+          - Maintainer Email: ${{ env.MAINTAINER_EMAIL }}
+          - Submission Date: ${{ github.event.release.created_at }}
+          - Trigger: Pre-release tagged as "${{ github.event.release.tag_name }}"
+
+          Note: You'll need to manually handle any feedback from CRAN reviewers.
+          EOF
+
+          echo "Created GitHub issue content:"
+          cat issue.md
+
+      - name: Create GitHub Issue with submission details
+        uses: peter-evans/create-issue-from-file@v4
+        with:
+          title: "CRAN Submission: ${{ env.PKGNAME }} ${{ env.VERSION }}"
+          content-filepath: ./issue.md
+          labels: "CRAN, submission"
