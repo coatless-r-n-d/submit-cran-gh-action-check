@@ -1,4 +1,4 @@
-Package: testpkg
+Package: testpkg2
 Type: Package
 Title: CRAN Submission from GitHub Actions
 Version: 0.1.0
@@ -9,8 +9,9 @@ Authors@R: c(
       role = c("aut", "cre")
     )
   )
-Description: More about what it does (maybe more than one line).
-    Continuation lines should be indented.
+Description: Demonstrates sending an R package to CRAN from a GitHub actions
+  workflow.
 License: AGPL (>= 3)
 Encoding: UTF-8
 LazyData: true
+RoxygenNote: 7.3.2
