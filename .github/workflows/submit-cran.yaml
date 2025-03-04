@@ -2,8 +2,8 @@ name: CRAN Submission
 
 on:
   workflow_dispatch: {}
-  push:
-    branches: [main, master]
+  #push:
+  #  branches: [main, master]
   release:
     types: [prereleased]
 
@@ -34,7 +34,7 @@ jobs:
         id: checkrpkg
         with:
           upload-snapshots: true
-          check-dir: ${{ env.CHECK_DIR }}
+          check-dir: "'${{ env.CHECK_DIR }}'"
           error-on: "'warning'"  # Fail if there are any warnings
 
       - name: Extract package information
