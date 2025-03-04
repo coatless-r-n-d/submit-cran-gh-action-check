@@ -51,9 +51,7 @@ jobs:
           maintainer_name <- sub("\\s*<.*>", "", maintainer)
 
           # Extract the email using desc's built-in function
-          emails <- desc::desc_get_maintainer_field(d$get("Maintainer"), "email")
-          maintainer_email <- if(length(emails) > 0) emails[1] else {
-            # Fallback email extraction if the desc function doesn't work
+          maintainer_email <- if(length(maintainer) == 1) {
             email_match <- regexpr("<[^>]+>|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", maintainer)
             if(email_match > 0) {
               email <- regmatches(maintainer, email_match)
@@ -61,6 +59,8 @@ jobs:
             } else {
               stop("Could not extract maintainer email from DESCRIPTION")
             }
+          } else {
+              stop("Multiple maintainers are listed in DESCRIPTION; unable to extract.")
           }
 
           # Write to environment for later steps
@@ -75,7 +75,8 @@ jobs:
           cat("Maintainer email:", maintainer_email, "\n")
 
           # Create a GitHub output for use in other steps
-          cat(sprintf("pkg_file=${PKGNAME}_${VERSION}.tar.gz\n") >> "$GITHUB_OUTPUT")
+          cat(sprintf("pkg_file=%s_%s.tar.gz\n", pkgname, version),
+              file = Sys.getenv("GITHUB_ENV"), append = TRUE)
 
       - name: Locate package tarball
         id: locate-tarball
