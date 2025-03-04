@@ -30,7 +30,7 @@ jobs:
 
       - name: Check package
         uses: r-lib/actions/check-r-package@v2
-        id: check
+        id: checkrpkg
         with:
           upload-snapshots: true
           error-on: "'warning'"  # Fail if there are any warnings
@@ -78,12 +78,18 @@ jobs:
           cat(sprintf("pkg_file=%s_%s.tar.gz\n", pkgname, version),
               file = Sys.getenv("GITHUB_ENV"), append = TRUE)
 
+
+      - name: Debug step outputs
+        run: |
+          echo "All outputs from previous step:"
+          echo "${{ toJSON(steps.checkrpkg) }}"
+
       - name: Locate package tarball
         id: locate-tarball
         shell: bash
         run: |
           # The package tarball from r-lib/actions/check-r-package@v2
-          CHECK_DIR="${{ steps.check.outputs.check_dir }}"
+          CHECK_DIR="${{ steps.checkrpkg.outputs.check-dir }}" || "."
 
           # Try to find the tarball
           PKG_TARBALL=$(find "${CHECK_DIR}" -name "${PKGNAME}_${VERSION}.tar.gz" -print -quit)
