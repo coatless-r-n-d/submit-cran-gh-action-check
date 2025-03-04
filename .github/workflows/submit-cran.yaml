@@ -78,12 +78,6 @@ jobs:
           cat(sprintf("pkg_file=%s_%s.tar.gz\n", pkgname, version),
               file = Sys.getenv("GITHUB_ENV"), append = TRUE)
 
-
-      - name: Debug step outputs
-        run: |
-          echo "All outputs from previous step:"
-          echo "${{ toJSON(steps.checkrpkg) }}"
-
       - name: Locate package tarball
         id: locate-tarball
         shell: bash
@@ -137,64 +131,56 @@ jobs:
 
       - name: Submit to CRAN
         id: cran-submit
-        shell: Rscript {0}
+        shell: bash
         run: |
-          pkg_file <- Sys.getenv("SUBMISSION_PKG")
+          # Get package file path
+          PKG_FILE="${SUBMISSION_PKG}"
 
-          if (!file.exists(pkg_file)) {
-            stop(paste("Package file not found:", pkg_file))
-          }
+          if [ ! -f "${PKG_FILE}" ]; then
+            echo "Error: Package file not found: ${PKG_FILE}"
+            echo "submission_status=failed" >> $GITHUB_OUTPUT
+            echo "submission_reason=missing_file" >> $GITHUB_OUTPUT
+            exit 1
+          fi
 
           # Check if package passes with no warnings or errors
-          check_log <- file.path("${{ steps.check.outputs.check_dir }}", "00check.log")
-          if (file.exists(check_log)) {
-            check_content <- readLines(check_log)
-            status_line <- grep("Status: ", check_content, value = TRUE)
-            cat("R CMD check status:", status_line, "\n")
+          CHECK_LOG="${{ steps.check.outputs.check_dir }}/00check.log"
+          if [ -f "${CHECK_LOG}" ]; then
+            STATUS_LINE=$(grep "Status: " "${CHECK_LOG}")
+            echo "R CMD check status: ${STATUS_LINE}"
 
-            has_errors <- grepl("ERROR", status_line)
-            has_warnings <- grepl("WARNING", status_line)
+            if [[ "${STATUS_LINE}" == *"ERROR"* ]] || [[ "${STATUS_LINE}" == *"WARNING"* ]]; then
+              echo "Package has errors or warnings. Not submitting to CRAN."
+              echo "submission_status=failed" >> $GITHUB_OUTPUT
+              echo "submission_reason=check_failed" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+          else
+            echo "Check log not found at ${CHECK_LOG}"
+            echo "Assuming package passed check since this step is running."
+          fi
 
-            if (has_errors || has_warnings) {
-              stop("Package has errors or warnings. Not submitting to CRAN.")
-            }
-          } else {
-            cat("Check log not found at", check_log, "\n")
-            cat("Assuming package passed check since this step is running.\n")
-          }
+          echo "Submitting package to CRAN..."
 
-          cat("Submitting package to CRAN...\n")
-          result <- tryCatch({
-            # Create a minimal version of the upload_cran function based on the provided code
-            upload_cran <- function(pkg, built_path) {
-              cat("Using built package at:", built_path, "\n")
-              cat("Simulation: Would submit to CRAN now using devtools:::upload_cran\n")
-              cat("In actual workflow, replace this with: devtools:::upload_cran(pkg, built_path)\n")
-              # Uncomment the line below to actually submit
-              # devtools:::upload_cran(pkg, built_path)
-              return(TRUE)
-            }
+          # Pass all collected metadata to the script to avoid re-reading DESCRIPTION
+          Rscript .github/scripts/submit_to_cran.R \
+            "${PKG_FILE}" \
+            "." \
+            "${PKGNAME}" \
+            "${VERSION}" \
+            "${MAINTAINER_NAME}" \
+            "${MAINTAINER_EMAIL}"
 
-            # Submit the package
-            upload_cran(".", pkg_file)
-
-            # In the real implementation, uncomment this line:
-            # devtools:::upload_cran(".", pkg_file)
-
-            TRUE
-          }, error = function(e) {
-            cat("Error during CRAN submission:", e$message, "\n")
-            FALSE
-          })
-
-          if (result) {
-            cat("CRAN submission successful!\n")
-            cat("submission_status=success\n", file = Sys.getenv("GITHUB_OUTPUT"), append = TRUE)
-          } else {
-            cat("CRAN submission failed\n")
-            cat("submission_status=failed\n", file = Sys.getenv("GITHUB_OUTPUT"), append = TRUE)
-            stop("CRAN submission failed")
-          }
+          # Check if the script was successful
+          if [ $? -eq 0 ]; then
+            echo "CRAN submission successful!"
+            echo "submission_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "CRAN submission failed"
+            echo "submission_status=failed" >> $GITHUB_OUTPUT
+            echo "submission_reason=upload_failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
 
       - name: Create issue content file
         shell: bash
@@ -237,7 +223,7 @@ jobs:
           - Submission Date: ${{ github.event.release.created_at }}
           - Trigger: Pre-release tagged as "${{ github.event.release.tag_name }}"
 
-          ${{ steps.cran-submit.outputs.submission_status == 'success' && 'Note: You will need to manually handle any feedback from CRAN reviewers.' || 'You can manually submit your package to CRAN once issues are resolved.' }}
+          ${{ steps.cran-submit.outputs.submission_status == 'success' && 'Note: You will need to manually handle any feedback from CRAN reviewers.' || 'You can manually submit your package to CRAN once issues are resolved or do a new pre-release.' }}
           EOF
 
           echo "Created issue content file with obfuscated email"
