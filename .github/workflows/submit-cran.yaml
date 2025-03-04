@@ -89,7 +89,7 @@ jobs:
         shell: bash
         run: |
           # The package tarball from r-lib/actions/check-r-package@v2
-          CHECK_DIR="${{ steps.checkrpkg.outputs.check-dir }}" || "."
+          CHECK_DIR="check"
 
           # Try to find the tarball
           PKG_TARBALL=$(find "${CHECK_DIR}" -name "${PKGNAME}_${VERSION}.tar.gz" -print -quit)
