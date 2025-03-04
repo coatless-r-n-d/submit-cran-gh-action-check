@@ -196,28 +196,55 @@ jobs:
             stop("CRAN submission failed")
           }
 
+      - name: Create issue content file
+        shell: bash
+        run: |
+          # Obfuscate email for privacy
+          EMAIL="${MAINTAINER_EMAIL}"
+
+          # Extract username and domain
+          USERNAME=$(echo "$EMAIL" | cut -d@ -f1)
+          DOMAIN=$(echo "$EMAIL" | cut -d@ -f2)
+
+          # Get first 2 characters of username and obfuscate the rest
+          if [ ${#USERNAME} -le 3 ]; then
+            # For very short usernames, just show first character
+            VISIBLE_PART="${USERNAME:0:1}"
+          else
+            # For longer usernames, show first 2 characters
+            VISIBLE_PART="${USERNAME:0:2}"
+          fi
+
+          # Create obfuscated version
+          OBFUSCATED_EMAIL="${VISIBLE_PART}****@${DOMAIN}"
+
+          cat << EOF > issue_content.md
+          ## CRAN Submission Status: ${{ steps.cran-submit.outputs.submission_status == 'success' && 'Submitted' || 'Failed' }}
+
+          A CRAN submission for **${{ env.PKGNAME }}** version **${{ env.VERSION }}** has been ${{ steps.cran-submit.outputs.submission_status == 'success' && 'submitted' || 'attempted but failed' }}.
+
+          ### ${{ steps.cran-submit.outputs.submission_status == 'success' && 'Next Steps' || 'Troubleshooting' }}:
+
+          ${{ steps.cran-submit.outputs.submission_status == 'success' && '1. **Check your email**: ' || '- Review the workflow logs: ' }} ${{ steps.cran-submit.outputs.submission_status == 'success' && 'You MUST reply to the confirmation email from CRAN to complete the submission.' || 'Check the GitHub Actions logs for error details.' }}
+          ${{ steps.cran-submit.outputs.submission_status == 'success' && '2. **Verify submission**: Check if your package appears at https://CRAN.R-project.org/incoming/' || '- Verify your package passes R CMD check with no warnings or errors.' }}
+          ${{ steps.cran-submit.outputs.submission_status == 'success' && '3. **If issues occur**: Contact CRAN administrators at cran-sysadmin@R-project.org' || '- Check your DESCRIPTION file and ensure maintainer information is correct.' }}
+
+          ### Submission details:
+          - Package: ${{ env.PKGNAME }}
+          - Version: ${{ env.VERSION }}
+          - Maintainer: ${{ env.MAINTAINER_NAME }}
+          - Email: ${OBFUSCATED_EMAIL}
+          - Submission Date: ${{ github.event.release.created_at }}
+          - Trigger: Pre-release tagged as "${{ github.event.release.tag_name }}"
+
+          ${{ steps.cran-submit.outputs.submission_status == 'success' && 'Note: You will need to manually handle any feedback from CRAN reviewers.' || 'You can manually submit your package to CRAN once issues are resolved.' }}
+          EOF
+
+          echo "Created issue content file with obfuscated email"
+
       - name: Create GitHub Issue
         uses: peter-evans/create-issue-from-file@v5
         with:
           title: "CRAN Submission: ${{ env.PKGNAME }} ${{ env.VERSION }}"
-          content: |
-            ## CRAN Submission Status: ${{ steps.cran-submit.outputs.submission_status == 'success' && 'Submitted' || 'Failed' }}
-
-            A CRAN submission for **${{ env.PKGNAME }}** version **${{ env.VERSION }}** has been ${{ steps.cran-submit.outputs.submission_status == 'success' && 'submitted' || 'attempted but failed' }}.
-
-            ### ${{ steps.cran-submit.outputs.submission_status == 'success' && 'Next Steps' || 'Troubleshooting' }}:
-
-            ${{ steps.cran-submit.outputs.submission_status == 'success' && '1. **Check your email**: ' || '- Review the workflow logs: ' }} ${{ steps.cran-submit.outputs.submission_status == 'success' && 'You MUST reply to the confirmation email from CRAN to complete the submission.' || 'Check the GitHub Actions logs for error details.' }}
-            ${{ steps.cran-submit.outputs.submission_status == 'success' && '2. **Verify submission**: Check if your package appears at https://CRAN.R-project.org/incoming/' || '- Verify your package passes R CMD check with no warnings or errors.' }}
-            ${{ steps.cran-submit.outputs.submission_status == 'success' && '3. **If issues occur**: Contact CRAN administrators at cran-sysadmin@R-project.org' || '- Check your DESCRIPTION file and ensure maintainer information is correct.' }}
-
-            ### Submission details:
-            - Package: ${{ env.PKGNAME }}
-            - Version: ${{ env.VERSION }}
-            - Maintainer: ${{ env.MAINTAINER_NAME }}
-            - Email: ${{ env.MAINTAINER_EMAIL }}
-            - Submission Date: ${{ github.event.release.created_at }}
-            - Trigger: Pre-release tagged as "${{ github.event.release.tag_name }}"
-
-            ${{ steps.cran-submit.outputs.submission_status == 'success' && 'Note: You will need to manually handle any feedback from CRAN reviewers.' || 'You can manually submit your package to CRAN once issues are resolved.' }}
+          content-filepath: ./issue_content.md
           labels: "CRAN, submission, ${{ steps.cran-submit.outputs.submission_status == 'success' && 'success' || 'failed' }}"
