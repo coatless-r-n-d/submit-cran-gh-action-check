@@ -3,7 +3,7 @@ name: CRAN Submission
 on:
   workflow_dispatch: {}
   push:
-   branches: [main, master]
+    branches: [main, master]
   release:
     types: [prereleased]
 
@@ -33,7 +33,7 @@ jobs:
         id: check
         with:
           upload-snapshots: true
-          error-on: warning  # Fail if there are any warnings
+          error-on: "'warning'"  # Fail if there are any warnings
 
       - name: Extract package information
         id: pkg-info
