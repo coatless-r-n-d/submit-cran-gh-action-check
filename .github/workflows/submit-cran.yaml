@@ -13,6 +13,7 @@ jobs:
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
+      CHECK_DIR: 'check'
 
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +26,7 @@ jobs:
       - name: Install dependencies
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::rcmdcheck, any::desc
+          extra-packages: any::rcmdcheck, any::desc, any::httr
           needs: check
 
       - name: Check package
@@ -33,6 +34,7 @@ jobs:
         id: checkrpkg
         with:
           upload-snapshots: true
+          check-dir: ${{ env.CHECK_DIR }}
           error-on: "'warning'"  # Fail if there are any warnings
 
       - name: Extract package information
@@ -83,10 +85,9 @@ jobs:
         shell: bash
         run: |
           # The package tarball from r-lib/actions/check-r-package@v2
-          CHECK_DIR="check"
 
           # Try to find the tarball
-          PKG_TARBALL=$(find "${CHECK_DIR}" -name "${PKGNAME}_${VERSION}.tar.gz" -print -quit)
+          PKG_TARBALL=$(find "${{ env.CHECK_DIR }}" -name "${PKGNAME}_${VERSION}.tar.gz" -print -quit)
 
           # If not found in check_dir, check the parent directory
           if [ -z "$PKG_TARBALL" ]; then
@@ -96,7 +97,7 @@ jobs:
           if [ -z "$PKG_TARBALL" ]; then
             echo "Could not find package tarball"
             echo "Check directory contents:"
-            find "${CHECK_DIR}" -type f | sort
+            find "${{ env.CHECK_DIR }}" -type f | sort
             exit 1
           fi
 
@@ -143,8 +144,9 @@ jobs:
             exit 1
           fi
 
+          # Last line of defense to prevent a problematic submission
           # Check if package passes with no warnings or errors
-          CHECK_LOG="${{ steps.check.outputs.check_dir }}/00check.log"
+          CHECK_LOG="${{ env.CHECK_DIR }}/*.Rcheck/00check.log"
           if [ -f "${CHECK_LOG}" ]; then
             STATUS_LINE=$(grep "Status: " "${CHECK_LOG}")
             echo "R CMD check status: ${STATUS_LINE}"
@@ -163,7 +165,7 @@ jobs:
           echo "Submitting package to CRAN..."
 
           # Pass all collected metadata to the script to avoid re-reading DESCRIPTION
-          Rscript .github/scripts/submit_to_cran.R \
+          Rscript .github/scripts/submit-to-cran.R \
             "${PKG_FILE}" \
             "." \
             "${PKGNAME}" \
