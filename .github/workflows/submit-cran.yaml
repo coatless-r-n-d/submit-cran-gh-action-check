@@ -38,7 +38,7 @@ jobs:
 
       - name: Check package
         uses: r-lib/actions/check-r-package@v2
-        id: check
+        id: checkrpkg
         with:
           upload-snapshots: true
           error-on: '"warning"'
@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           echo "View job data"
-          echo ${{join(steps.run_tests.outputs.*, '\n')}}
+          echo ${{join(steps.checkrpkg.outputs.*, '\n')}}
 
       - name: Debug - Access package tarball
         shell: bash
